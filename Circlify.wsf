@@ -1,0 +1,185 @@
+<?xml version="1.0" ?>
+<package>
+<job id="Circlify">
+<resource id="VBCode">
+<![CDATA[
+Public Type POINTAPI
+	x As Long
+	y As Long
+End Type
+
+#If VBA7 Then
+	Public Declare PtrSafe Function GetCursorPos Lib "user32.dll" (ByRef lpPoint As POINTAPI) As Long
+	Public Declare PtrSafe Function SetCursorPos Lib "user32.dll" (ByVal x As Long, ByVal y As Long) As Long
+#Else
+	Public Declare Function GetCursorPos Lib "user32.dll" (ByRef lpPoint As POINTAPI) As Long
+	Public Declare Function SetCursorPos Lib "user32.dll" (ByVal x As Long, ByVal y As Long) As Long
+#EndIf
+
+Dim SharedMemory
+
+Public Function EstablishSharedMemory()
+	Set SharedMemory = CreateObject("Scripting.Dictionary")
+	Set EstablishSharedMemory = SharedMemory
+End Function
+
+Public Function GCP() As Boolean
+	Dim pos As POINTAPI
+	Dim result As Long
+	result = GetCursorPos(pos)
+	SharedMemory("X") = pos.x
+	SharedMemory("Y") = pos.y
+	If result <> 0 Then
+		GCP = True
+	Else
+		GCP = False
+	End If
+End Function
+
+Public Function SCP() As Boolean
+	If SetCursorPos(CLng(SharedMemory("X")), CLng(SharedMemory("Y"))) <> 0 Then
+		SCP = True
+	Else
+		SCP = False
+	End If
+End Function
+]]>
+</resource>
+<script language="jscript">
+<![CDATA[
+//@cc_on
+@set @Optimized_Motion = true
+
+var FSO = new ActiveXObject("Scripting.FileSystemObject");
+var wshShell = new ActiveXObject("WScript.Shell");
+checkScript();
+
+var PP = initVBIOLET();
+var SharedMemory = PP.Run("EstablishSharedMemory");
+WScript.StdOut.WriteLine("---------------------------");
+
+WScript.StdOut.Write("Radius (in pixels): ");
+var radius = parseInt(WScript.StdIn.ReadLine());
+var P = Math.floor(2 * radius * Math.PI);
+if (isNaN(radius))
+{
+	WScript.StdErr.WriteLine("Invalid number.");
+	WScript.StdIn.SkipLine();
+	PP.Quit();
+	WScript.Quit();
+}
+
+WScript.StdOut.Write("Times: ");
+var times = parseInt(WScript.StdIn.ReadLine());
+if (isNaN(times))
+{
+	WScript.StdErr.WriteLine("Invalid number.");
+	WScript.StdIn.SkipLine();
+	PP.Quit();
+	WScript.Quit();
+}
+
+var center = GetCursorPos();
+WScript.StdOut.WriteLine("Circlifying...");
+for (var i = 0;i < times;i++)
+	for (var j = 1;j <= P;j++)
+	{
+		var point = GetPointByAngle(j / P * 360);
+		SetCursorPos(point.x, point.y);
+		@if (@Optimized_Motion)
+		WScript.Sleep(1);
+		@end
+	}
+
+PP.Quit();
+
+function checkScript()
+{
+	if (FSO.GetBaseName(WScript.FullName).toLowerCase() != "cscript")
+	{
+		wshShell.Run('cscript "' + WScript.ScriptFullName + '"');
+		WScript.Quit();
+	}
+}
+
+function initVBIOLET()
+{
+	WScript.StdOut.WriteLine("VBIOLET Initialization:");
+	
+	WScript.StdOut.WriteLine("Performing Trust Center circumevention...");
+	try
+	{
+		var programPath = wshShell.RegRead("HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\powerpnt.exe\\");
+		var programVersion = FSO.GetFileVersion(programPath).split(".");
+		if (programVersion.length < 2)
+			throw new Error("Unable to detect the version of PowerPoint currently installed on the computer.");
+		programVersion = programVersion[0] + "." + programVersion[1];
+		var valuePath = "HKCU\\Software\\Microsoft\\Office\\" + programVersion + "\\PowerPoint\\Security\\AccessVBOM";
+		try
+		{
+			var initialValue = wshShell.RegRead(valuePath);
+		}
+		catch (nothing)
+		{
+			var initialValue = 0;
+		}
+		wshShell.RegWrite(valuePath, 1, "REG_DWORD");
+	}
+	catch (e)
+	{
+		WScript.StdErr.WriteLine("Error while performing security circumevention:");
+		WScript.StdErr.WriteLine(e.description);
+		WScript.StdErr.WriteLine("Note that this error usually occurs when PowerPoint is not installed on your computer.");
+		WScript.StdErr.WriteLine("Press Enter to quit.");
+		WScript.StdIn.ReadLine();
+		WScript.Quit();
+	}
+	
+	try
+	{
+		WScript.StdOut.WriteLine("Instanciating PowerPoint Application object...");
+		var PP = new ActiveXObject("PowerPoint.Application");
+		WScript.StdOut.WriteLine("Initializing VBA modules and establishing shared memory...");
+		var project = PP.Presentations.Add(0).VBProject;
+		var module = project.VBComponents.Add(1).CodeModule;
+		module.AddFromString(getResource("VBCode"));
+		wshShell.RegWrite(valuePath, initialValue, "REG_DWORD");
+	}
+	catch (e)
+	{
+		WScript.StdErr.WriteLine("Error when interacting with PowerPoint:");
+		WScript.StdErr.WriteLine(e.description);
+		WScript.StdErr.WriteLine("Note that this error usually occurs when the security circumevention is not performed successfully.");
+		WScript.StdErr.WriteLine("Press Enter to quit.");
+		WScript.StdIn.ReadLine();
+		WScript.Quit();
+	}
+	
+	return PP;
+}
+
+function GetCursorPos()
+{
+	if (!PP.Run("GCP"))
+		throw new Error("Unable to determine the current position of cursor.");
+	
+	return {x:SharedMemory("X"), y:SharedMemory("Y")};
+}
+
+function SetCursorPos(x, y)
+{
+	SharedMemory("X") = x;
+	SharedMemory("Y") = y;
+	if (!PP.Run("SCP"))
+		throw new Error("Unable to set the position of cursor.");
+}
+
+function GetPointByAngle(angle)
+{
+	var radians = angle * Math.PI / 180;
+	return {x:Math.floor(center.x + Math.cos(radians) * radius), y:Math.floor(center.y - Math.sin(radians) * radius)};
+}
+]]>
+</script>
+</job>
+</package>
